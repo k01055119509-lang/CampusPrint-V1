@@ -1,0 +1,164 @@
+openapi: 3.0.3
+info:
+  title: CampusPrint V1 API
+  version: 1.4.0
+  description: 独立公告、结构化接收默认、收款禁取消、用户直接取消自动退原券并隐藏商户列表、审核与商家补偿、固定核款退回及删除新增财务异常。价格规则1.1.0不变。
+servers:
+  - url: /api
+paths:
+  /auth/csrf:
+    $ref: ./base.yaml#/paths/~1auth~1csrf
+  /auth/register:
+    $ref: ./base.yaml#/paths/~1auth~1register
+  /auth/login:
+    $ref: ./base.yaml#/paths/~1auth~1login
+  /auth/admin-login:
+    $ref: ./base.yaml#/paths/~1auth~1admin-login
+  /auth/me:
+    $ref: ./base.yaml#/paths/~1auth~1me
+  /auth/logout:
+    $ref: ./base.yaml#/paths/~1auth~1logout
+  /me/profile:
+    $ref: ./base.yaml#/paths/~1me~1profile
+  /public/config:
+    $ref: ./base.yaml#/paths/~1public~1config
+  /files:
+    $ref: ./base.yaml#/paths/~1files
+  /files/{id}:
+    $ref: ./base.yaml#/paths/~1files~1{id}
+  /files/{id}/preview:
+    $ref: ./base.yaml#/paths/~1files~1{id}~1preview
+  /admin/files/cleanup-status:
+    $ref: ./base.yaml#/paths/~1admin~1files~1cleanup-status
+  /admin/files/cleanup-run:
+    $ref: ./base.yaml#/paths/~1admin~1files~1cleanup-run
+  /print/config:
+    $ref: ./print.yaml#/paths/~1print~1config
+  /me/print-defaults:
+    $ref: ./print.yaml#/paths/~1me~1print-defaults
+  /print/quotes:
+    $ref: ./print.yaml#/paths/~1print~1quotes
+  /print/quotes/{id}:
+    $ref: ./print.yaml#/paths/~1print~1quotes~1{id}
+  /print/quotes/{id}/items/{itemId}/preview:
+    $ref: ./print.yaml#/paths/~1print~1quotes~1{id}~1items~1{itemId}~1preview
+  /orders:
+    $ref: ./print.yaml#/paths/~1orders
+  /me/orders:
+    $ref: ./print.yaml#/paths/~1me~1orders
+  /me/orders/{id}:
+    $ref: ./print.yaml#/paths/~1me~1orders~1{id}
+  /me/orders/{id}/items/{itemId}/preview:
+    $ref: ./print.yaml#/paths/~1me~1orders~1{id}~1items~1{itemId}~1preview
+  /me/orders/{id}/items/{itemId}/file:
+    $ref: ./print.yaml#/paths/~1me~1orders~1{id}~1items~1{itemId}~1file
+  /admin/orders:
+    $ref: ./print.yaml#/paths/~1admin~1orders
+  /admin/orders/{id}:
+    $ref: ./print.yaml#/paths/~1admin~1orders~1{id}
+  /admin/orders/{id}/items/{itemId}/preview:
+    $ref: ./print.yaml#/paths/~1admin~1orders~1{id}~1items~1{itemId}~1preview
+  /admin/orders/{id}/items/{itemId}/print-file:
+    $ref: ./print.yaml#/paths/~1admin~1orders~1{id}~1items~1{itemId}~1print-file
+  /me/orders/{id}/payment-submissions:
+    $ref: ./print.yaml#/paths/~1me~1orders~1{id}~1payment-submissions
+  /me/orders/{id}/cancel-requests:
+    $ref: ./print.yaml#/paths/~1me~1orders~1{id}~1cancel-requests
+  /me/orders/{id}/tickets:
+    $ref: ./print.yaml#/paths/~1me~1orders~1{id}~1tickets
+  /me/tickets:
+    $ref: ./print.yaml#/paths/~1me~1tickets
+  /me/tickets/{id}:
+    $ref: ./print.yaml#/paths/~1me~1tickets~1{id}
+  /admin/dashboard:
+    $ref: ./print.yaml#/paths/~1admin~1dashboard
+  /admin/orders/{id}/payment-review:
+    $ref: ./print.yaml#/paths/~1admin~1orders~1{id}~1payment-review
+  /admin/orders/{id}/production-action:
+    $ref: ./print.yaml#/paths/~1admin~1orders~1{id}~1production-action
+  /admin/orders/{id}/delivery-action:
+    $ref: ./print.yaml#/paths/~1admin~1orders~1{id}~1delivery-action
+  /admin/orders/{id}/cancel-resolution:
+    $ref: ./print.yaml#/paths/~1admin~1orders~1{id}~1cancel-resolution
+  /admin/orders/{id}/refunds:
+    $ref: ./print.yaml#/paths/~1admin~1orders~1{id}~1refunds
+  /admin/users:
+    $ref: ./print.yaml#/paths/~1admin~1users
+  /admin/tickets:
+    $ref: ./print.yaml#/paths/~1admin~1tickets
+  /admin/tickets/{id}/updates:
+    $ref: ./print.yaml#/paths/~1admin~1tickets~1{id}~1updates
+  /admin/settings:
+    $ref: ./print.yaml#/paths/~1admin~1settings
+  /admin/payment-qr:
+    $ref: ./print.yaml#/paths/~1admin~1payment-qr
+  /public/payment-qr:
+    $ref: ./print.yaml#/paths/~1public~1payment-qr
+  /me/security-questions:
+    $ref: ./base.yaml#/paths/~1me~1security-questions
+  /me/password:
+    $ref: ./base.yaml#/paths/~1me~1password
+  /auth/guest:
+    $ref: ./base.yaml#/paths/~1auth~1guest
+  /orders/recover:
+    $ref: ./print.yaml#/paths/~1orders~1recover
+  /me/orders/{id}/query-code:
+    $ref: ./print.yaml#/paths/~1me~1orders~1{id}~1query-code
+  /admin/orders/{id}/query-code:
+    $ref: ./print.yaml#/paths/~1admin~1orders~1{id}~1query-code
+  /admin/coupon-batches:
+    $ref: ./print.yaml#/paths/~1admin~1coupon-batches
+  /admin/coupons:
+    $ref: ./print.yaml#/paths/~1admin~1coupons
+  /admin/coupons/reveal-codes:
+    $ref: ./print.yaml#/paths/~1admin~1coupons~1reveal-codes
+  /admin/coupons/{id}/disable:
+    $ref: ./print.yaml#/paths/~1admin~1coupons~1{id}~1disable
+  /admin/orders/{id}/coupon-resolution:
+    $ref: ./print.yaml#/paths/~1admin~1orders~1{id}~1coupon-resolution
+  /admin/payment-qr/{channel}:
+    $ref: ./print.yaml#/paths/~1admin~1payment-qr~1{channel}
+  /public/payment-qr/{channel}:
+    $ref: ./print.yaml#/paths/~1public~1payment-qr~1{channel}
+  /public/advertisements:
+    $ref: ./print.yaml#/paths/~1public~1advertisements
+  /public/advertisements/{id}/image:
+    $ref: ./print.yaml#/paths/~1public~1advertisements~1{id}~1image
+  /admin/advertisements:
+    $ref: ./print.yaml#/paths/~1admin~1advertisements
+  /admin/advertisements/{id}:
+    $ref: ./print.yaml#/paths/~1admin~1advertisements~1{id}
+  /admin/advertisements/{id}/image:
+    $ref: ./print.yaml#/paths/~1admin~1advertisements~1{id}~1image
+  /admin/reason-catalog:
+    $ref: ./print.yaml#/paths/~1admin~1reason-catalog
+  /admin/orders/{id}/fulfillment-action:
+    $ref: ./print.yaml#/paths/~1admin~1orders~1{id}~1fulfillment-action
+  /me/feedback:
+    $ref: ./print.yaml#/paths/~1me~1feedback
+  /admin/tickets/{id}:
+    $ref: ./print.yaml#/paths/~1admin~1tickets~1{id}
+  /public/announcement:
+    $ref: ./print.yaml#/paths/~1public~1announcement
+  /admin/announcement:
+    $ref: ./print.yaml#/paths/~1admin~1announcement
+  /admin/compensation-policy:
+    $ref: ./print.yaml#/paths/~1admin~1compensation-policy
+  /me/orders/{id}/compensation-code:
+    $ref: ./print.yaml#/paths/~1me~1orders~1{id}~1compensation-code
+components:
+  securitySchemes:
+    StudentSessionCookie:
+      type: apiKey
+      in: cookie
+      name: cp_student_session
+      description: 生产 __Host-cp_student_session；访客或已开启学生账号会话。HttpOnly、SameSite=Lax、Path=/，生产 Secure。
+    AdminSessionCookie:
+      type: apiKey
+      in: cookie
+      name: cp_admin_session
+      description: 生产 __Host-cp_admin_session；仅管理员。旧 cp_session / __Host-cp_session 只经数据库角色核验迁移管理员，保留原到期时间。
+    CsrfToken:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token

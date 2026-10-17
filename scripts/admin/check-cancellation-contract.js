@@ -1,0 +1,24 @@
+'use strict';
+const assert=require('node:assert/strict'),h=require('../../tests/business/helpers'),{Client}=require('../../tests/helpers/runtime');
+module.exports=async function({runtime,spec,validate,user,admin}){
+  const check=(route,method,response,status=200)=>{assert.equal(response.status,status);validate(response.body,spec.paths[route][method].responses[String(status)].content['application/json'].schema);return response.body.data;};
+  const post=async(client,route,documented,body)=>{validate(body,spec.paths[documented].post.requestBody.content['application/json'].schema);return check(documented,'post',await h.post(client,'/api'+route,body));};
+  const anonymous=new Client(runtime);check('/public/announcement','get',await anonymous.request('GET','/api/public/announcement'));
+  const original=check('/admin/announcement','get',await admin.request('GET','/api/admin/announcement')),announcement={expectedVersion:original.version,enabled:true,content:'契约纯文本公告\n<plain text>'};
+  validate(announcement,spec.paths['/admin/announcement'].patch.requestBody.content['application/json'].schema);check('/admin/announcement','patch',await admin.request('PATCH','/api/admin/announcement',announcement));check('/public/announcement','get',await anonymous.request('GET','/api/public/announcement'));
+  check('/admin/compensation-policy','get',await admin.request('GET','/api/admin/compensation-policy'));
+  const defaults={receiptMethod:'other',receiptNote:'契约接收说明'};validate(defaults,spec.paths['/me/print-defaults'].patch.requestBody.content['application/json'].schema);check('/me/print-defaults','patch',await user.request('PATCH','/api/me/print-defaults',defaults));
+  let direct=await h.order(runtime,user);direct=await post(user,'/me/orders/'+direct.id+'/cancel-requests','/me/orders/{id}/cancel-requests',{expectedVersion:direct.version});assert.equal(direct.cancellation.hiddenFromMerchant,true);check('/admin/orders/{id}','get',await admin.request('GET','/api/admin/orders/'+direct.id),404);
+  let order=await h.order(runtime,user);const base='/admin/orders/'+order.id;
+  const mismatch=await h.post(admin,'/api'+base+'/payment-review',{expectedVersion:order.version,action:'confirm',amountFen:order.totals.totalAmountFen+1,channel:'other',reference:'CONTRACT-MISMATCH'});check('/admin/orders/{id}/payment-review','post',mismatch,409);assert.equal(mismatch.body.error.code,'PAYMENT_AMOUNT_MISMATCH');
+  const removed=await h.post(admin,'/api'+base+'/payment-review',{expectedVersion:order.version,action:'flag_exception'});check('/admin/orders/{id}/payment-review','post',removed,410);assert.equal(removed.body.error.code,'FINANCIAL_EXCEPTION_RECORDING_REMOVED');
+  check('/admin/orders/{id}/cancel-resolution','post',await h.post(admin,'/api'+base+'/cancel-resolution',{expectedVersion:order.version,action:'request'}),410);
+  order=await post(user,'/me/orders/'+order.id+'/payment-submissions','/me/orders/{id}/payment-submissions',{expectedVersion:order.version,channel:'wechat'});
+  order=await post(admin,base+'/payment-review','/admin/orders/{id}/payment-review',{expectedVersion:order.version,action:'reject',reasonCode:'not_received'});assert.equal(order.payment.returnReason.code,'not_received');
+  order=await post(user,'/me/orders/'+order.id+'/cancel-requests','/me/orders/{id}/cancel-requests',{expectedVersion:order.version});assert.equal(order.cancellation.requestMode,'unavailable');order=await post(admin,base+'/cancel-resolution','/admin/orders/{id}/cancel-resolution',{expectedVersion:order.version,action:'approve'});assert.equal(order.cancellation.hiddenFromMerchant,false);
+  let compensated=await h.order(runtime,user);compensated=await post(admin,'/admin/orders/'+compensated.id+'/cancel-resolution','/admin/orders/{id}/cancel-resolution',{expectedVersion:compensated.version,action:'cancel',reasonCode:'merchant_unavailable',compensate:true});assert(compensated.compensation);
+  check('/me/orders/{id}/compensation-code','get',await user.request('GET','/api/me/orders/'+compensated.id+'/compensation-code'));
+  const recovered=new Client(runtime);await recovered.guest();const queryCode=h.data(await user.request('GET','/api/me/orders/'+compensated.id+'/query-code')).queryCode;
+  check('/orders/recover','post',await recovered.request('POST','/api/orders/recover',{queryCode}));check('/me/orders/{id}/compensation-code','get',await recovered.request('GET','/api/me/orders/'+compensated.id+'/compensation-code'),403);
+  return 'Live announcement public/admin/PATCH, structured defaults, direct/review/merchant compensation, hidden order, minimal recovered DTO, owner-only full code and removed/error response schemas';
+};

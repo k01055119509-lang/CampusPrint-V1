@@ -1,0 +1,42 @@
+# Dependencies and generated distributions
+node_modules/
+/dist/
+/runtime/
+coverage/
+playwright-report/
+test-results/
+
+# Local configuration and business storage
+.env
+.env.*
+!.env.example
+/var/
+/tmp/
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+*.log
+
+# Uploaded payment/advertisement originals stay on this computer
+/assets-inbox/*
+!/assets-inbox/README.md
+
+# Generated evidence and private project coordination records
+/docs/verification/
+/tests/**/evidence/
+/tests/**/screenshots/
+/docs/handoffs/
+/docs/tasks/
+/docs/上线筹备/
+/项目总控核心.md
+# Historical machine-specific operations containing old local login values
+/scripts/deploy/audit-workflow-local.js
+/scripts/deploy/local-upgrade.js
+
+# Editor and operating-system temporary files
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo

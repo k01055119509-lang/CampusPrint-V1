@@ -1,0 +1,22 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const { isolated, Client, PROJECT } = require('../helpers/runtime');
+test('期限台账失败时保持访问禁止，提交的期限元数据可重试落盘', async t => {
+  const runtime = await isolated(); t.after(() => runtime.destroy()); const student = new Client(runtime); await student.guest();
+  const upload = await student.upload(await fs.readFile(path.join(PROJECT, 'tests/fixtures/sample-chinese.pdf'))); await runtime.files.waitForIdle();
+  const artifact = await runtime.files.preparePrintItem({ userId: student.user.id, fileId: upload.body.data.id, pageNumbers: [1], preparationId: 'ledger-test' });
+  runtime.db.tx(() => runtime.files.claimForOrder({ orderId: 'ledger-test-order', userId: student.user.id, items: [{ fileId: upload.body.data.id, printArtifactId: artifact.artifactId }] }));
+  const original = runtime.files.ledger.flush.bind(runtime.files.ledger);
+  runtime.files.ledger.flush = () => { runtime.files.ledger.failure = 'FILE_LEDGER_UNAVAILABLE'; throw new Error('injected isolated disk failure'); };
+  const expiry = new Date(runtime.config.clock().getTime() + 7 * 86400000).toISOString();
+  runtime.db.tx(() => runtime.files.setOrderFileExpiry({ orderId: 'ledger-test-order', expiresAt: expiry }));
+  assert.equal(runtime.db.get('SELECT expiresAt FROM files WHERE id=?', upload.body.data.id).expiresAt, expiry);
+  assert.equal(runtime.db.get('SELECT COUNT(*) AS n FROM file_retention_outbox').n, 1);
+  await assert.rejects(runtime.files.openArtifactForRead({ actor: student.user, artifactId: artifact.artifactId }), error => error.code === 'FILE_LEDGER_UNAVAILABLE');
+  runtime.files.ledger.flush = original; await runtime.files.purgeExpiredFiles();
+  assert.equal(runtime.db.get('SELECT COUNT(*) AS n FROM file_retention_outbox').n, 0);
+  const opened = await runtime.files.openArtifactForRead({ actor: student.user, artifactId: artifact.artifactId }); await opened.handle.close();
+});

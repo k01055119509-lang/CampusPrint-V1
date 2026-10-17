@@ -1,0 +1,7 @@
+# Replace this example domain with an owned domain pointing to the server.
+print.example.edu {
+    request_body {
+        max_size 42MB
+    }
+    reverse_proxy 127.0.0.1:4328
+}

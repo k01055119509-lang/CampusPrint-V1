@@ -1,0 +1,3 @@
+# Preserve exact source bytes on every machine. Applied SQL migrations are
+# verified by SHA-256 and must not change through automatic CRLF conversion.
+* -text

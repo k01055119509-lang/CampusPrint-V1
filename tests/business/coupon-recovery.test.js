@@ -1,0 +1,60 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const path = require('node:path');
+const { randomUUID } = require('node:crypto');
+const { isolated, Client, TEST_ROOT, configAt, TEST_PASSWORD, removeTestStorage } = require('../helpers/runtime');
+const { startServer } = require('../../backend/server');
+const { loadConfig } = require('../../backend/config');
+const { createSnapshot, exportAuthority, restoreSnapshot } = require('../../scripts/deploy/backup');
+const h = require('./helpers');
+const c = require('./coupon-helpers');
+test('重启前未扫描的占用到期启动即捕捉；周期与核款竞争不漏标且定时器安全关闭',async t=>{
+  const name=randomUUID(),root=path.join(TEST_ROOT,name);let instant=new Date('2026-10-14T04:00:00.000Z'),runtime;
+  const config=configAt(root,{clock:()=>new Date(instant),limits:{cleanupIntervalMs:50},rateLimits:{writeIp:6000,writeUser:3000}});
+  runtime=await startServer(config);t.after(async()=>{await runtime?.close();await removeTestStorage(name);});
+  const {user,admin}=await h.actors(runtime),issued=await c.issued(admin,{expiresAt:new Date(instant.getTime()+1000).toISOString()});let value=await c.order(runtime,user,issued.code);
+  const cookies={user:user.cookie,admin:admin.cookie};const firstVersion=value.version;await runtime.close();assert.equal(runtime.context.orders.coupons.timer,null);instant=new Date(instant.getTime()+1000);runtime=await startServer(config);
+  assert.equal(runtime.db.get('SELECT hold FROM order_coupon_exceptions WHERE orderId=?',value.id).hold,1);assert.equal(runtime.db.get('SELECT version FROM print_orders WHERE id=?',value.id).version,firstVersion+1);
+  const student=new Client(runtime),operator=new Client(runtime,{surface:'admin'});student.cookie=cookies.user;operator.cookie=cookies.admin;await student.csrfToken();await operator.csrfToken();value=await c.get(operator,value);
+  assert.equal(h.data(await student.request('GET','/api/me/orders/'+value.id)).accessType,'owner');
+  const periodic=await c.issued(operator,{expiresAt:new Date(instant.getTime()+1000).toISOString()});let periodicOrder=await c.order(runtime,student,periodic.code);instant=new Date(instant.getTime()+1000);
+  const deadline=Date.now()+2000;while(!runtime.db.get('SELECT hold FROM order_coupon_exceptions WHERE orderId=?',periodicOrder.id)&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,25));
+  assert.equal(runtime.db.get('SELECT hold FROM order_coupon_exceptions WHERE orderId=?',periodicOrder.id).hold,1);assert.equal(runtime.db.get('SELECT version FROM print_orders WHERE id=?',periodicOrder.id).version,periodicOrder.version+1);
+  const race=await c.issued(operator,{expiresAt:new Date(instant.getTime()+1000).toISOString()});let raced=await c.order(runtime,student,race.code);instant=new Date(instant.getTime()+1000);
+  const headers=h.key(),body={expectedVersion:raced.version,action:'confirm',amountFen:raced.totals.totalAmountFen,channel:'other',reference:'SOFTWARE-RACE-'+randomUUID(),note:'隔离核款与扫描竞争'};
+  const responses=await Promise.all([h.post(operator,`/api/admin/orders/${raced.id}/payment-review`,body,headers),h.post(operator,`/api/admin/orders/${raced.id}/payment-review`,body,headers)]);
+  // If the independent periodic scan committed first, the old optimistic version is correctly rejected; refresh and retry.
+  let confirmed=responses.find(row=>row.status===200);
+  if(!confirmed){assert(responses.every(row=>row.body.error.code==='VERSION_CONFLICT'));raced=await c.get(operator,raced);confirmed=await h.post(operator,`/api/admin/orders/${raced.id}/payment-review`,{...body,expectedVersion:raced.version});}
+  raced=h.data(confirmed);assert.equal(c.row(runtime,race.coupon).state,'redeemed');assert.equal(raced.couponException.hold,true);assert.equal(runtime.db.get('SELECT COUNT(*) n FROM payment_receipts WHERE orderId=?',raced.id).n,1);assert.equal(runtime.db.get("SELECT COUNT(*) n FROM order_events WHERE orderId=? AND type='coupon_exception_detected'",raced.id).n,1);
+  const stableVersion=(await c.get(operator,value)).version;await new Promise(resolve=>setTimeout(resolve,100));assert.equal((await c.get(operator,value)).version,stableVersion);
+  await c.evidence('coupon-scan-evidence',{kind:'B-startup-periodic-and-receipt-race',startupBeforeHTTP:true,periodicIntervalMs:50,productionDefaultIntervalMs:300000,detectedWithoutRead:true,receiptAndPeriodicRace:true,receiptCount:1,couponRedeemed:true,couponHoldPreserved:true,repeatScanNoDuplicateEvent:true,timerClearedOnClose:true});
+});
+test('新版本一致性备份恢复保留券规则/私有码/占用/核销/异常与金额，丢弃授权会话',async t=>{
+  const original=await isolated({rateLimits:{writeIp:6000,writeUser:3000}}),targetName=randomUUID(),authorityName=randomUUID(),target=path.join(TEST_ROOT,targetName),authority=path.join(TEST_ROOT,authorityName);let restored;
+  t.after(async()=>{await restored?.close();await original.destroy();await removeTestStorage(targetName);await removeTestStorage(authorityName);});
+  const {user,admin}=await h.actors(original),reserved=await c.issued(admin),redeemed=await c.issued(admin);
+  let waiting=await c.order(original,user,reserved.code),paid=await c.order(original,user,redeemed.code);paid=await h.confirm(admin,paid);
+  h.data(await h.post(admin,`/api/admin/coupons/${reserved.coupon.id}/disable`,{expectedVersion:c.row(original,reserved.coupon).version,note:'备份中包含待处理券异常'}));waiting=await c.get(admin,waiting);assert.equal(waiting.couponException.hold,true);
+  const snapshot=await createSnapshot(original);await exportAuthority(original,authority);await original.close();
+  const config={...loadConfig(),...configAt(target)};const restoration=await restoreSnapshot({snapshotRoot:snapshot.directory,authorityRoot:authority,config});assert.equal(restoration.orders,2);restored=await startServer(config);
+  assert.equal(restored.db.get('SELECT COUNT(*) n FROM sessions').n,0);assert.equal(restored.db.get('SELECT COUNT(*) n FROM order_access_grants').n,0);assert.equal(restored.db.get('PRAGMA integrity_check').integrity_check,'ok');assert.equal(restored.db.all('PRAGMA foreign_key_check').length,0);
+  const operator=new Client(restored,{surface:'admin'});await operator.csrfToken();h.data(await operator.request('POST','/api/auth/admin-login',{username:admin.user.username,password:TEST_PASSWORD}));
+  const code=await c.reveal(operator,reserved.coupon.id);assert(code===reserved.code,'unredeemed code remains readable and unchanged after managed restore');
+  const recoveredWaiting=await c.get(operator,waiting),recoveredPaid=await c.get(operator,paid);assert.equal(recoveredWaiting.totals.totalAmountFen,40);assert.equal(recoveredWaiting.couponException.hold,true);assert.equal(recoveredPaid.payment.receipt.amountFen,40);assert.equal(c.row(restored,reserved.coupon).state,'reserved');assert.equal(c.row(restored,redeemed.coupon).state,'redeemed');
+  const output=await operator.request('POST','/api/admin/coupons/reveal-codes',{couponIds:[redeemed.coupon.id]});assert.equal(output.status,200);assert(!Object.hasOwn(output.body.data.items[0],'code'));
+  assert.equal(restored.db.get('SELECT COUNT(*) n FROM coupon_exception_history').n,1);
+  await c.evidence('coupon-backup-evidence',{kind:'B-managed-backup-restore-of-coupons',ordersRestored:2,unredeemedCodeUnchanged:true,redeemedCodeNotRevealed:true,reservedStatePreserved:true,redeemedStatePreserved:true,exceptionHoldPreserved:true,eachTotalAmountFen:40,sessionsDiscarded:true,extraKeyFileRequired:false,integrity:'ok',foreignKeyViolations:0});
+});
+test('恢复访客只获得本单价格/优惠/异常白名单，不能读码、取消、处理券或访问文件',async t=>{
+  const runtime=await isolated();t.after(()=>runtime.destroy());const {user,other,admin}=await h.actors(runtime),issued=await c.issued(admin);h.data(await h.paymentQr(admin));const value=await c.order(runtime,user,issued.code),another=await h.order(runtime,user);
+  const query=h.data(await user.request('GET',`/api/me/orders/${value.id}/query-code`)).queryCode;h.data(await other.request('POST','/api/orders/recover',{queryCode:query}));
+  h.data(await h.post(admin,`/api/admin/coupons/${issued.coupon.id}/disable`,{expectedVersion:c.row(runtime,issued.coupon).version,note:'恢复明细异常验证'}));let dto=h.data(await other.request('GET','/api/me/orders/'+value.id));
+  assert.equal(dto.accessType,'recovered');assert.equal(dto.totals.pricingVersion,'1.1.0');assert.equal(dto.totals.discountAmountFen,10);assert.equal(dto.totals.totalAmountFen,40);assert.deepEqual(dto.totals.pricingRules,{singleSidedSheetPriceFen:50,doubleSidedSheetPriceFen:90,oddTailSheetPriceFen:50});assert.equal(dto.coupon.id,issued.coupon.id);assert.equal(dto.couponException.hold,true);
+  for(const field of ['user','userId','quoteId','events','deliveryAddress','couponExceptionHistory'])assert(!Object.hasOwn(dto,field));assert(!Object.hasOwn(dto.items[0],'fileId'));assert(!dto.allowedActions.includes('resolve_coupon_exception'));
+  assert.equal((await other.request('GET','/api/me/orders/'+another.id)).status,404);assert.equal((await other.request('GET',`/api/me/orders/${value.id}/items/${value.items[0].itemId}/file`,undefined,{raw:true})).status,403);assert.equal((await other.request('GET',`/api/me/orders/${value.id}/query-code`)).status,403);
+  assert.equal((await h.post(other,`/api/me/orders/${value.id}/cancel-requests`,{expectedVersion:dto.version,reason:'禁止恢复取消'})).status,403);assert.equal((await h.post(other,`/api/admin/orders/${value.id}/coupon-resolution`,{expectedVersion:dto.version,action:'continue',note:'禁止恢复处理'})).status,403);
+  dto=h.data(await h.post(other,`/api/me/orders/${value.id}/payment-submissions`,{expectedVersion:dto.version,channel:'other',reference:'恢复访客如实声明'}));assert.equal(dto.accessType,'recovered');assert.equal(dto.payment.status,'submitted');assert.equal(c.row(runtime,issued.coupon).state,'reserved');
+  c.assertNoCodes(dto,[query,issued.code]);
+});

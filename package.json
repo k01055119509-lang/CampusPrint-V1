@@ -1,0 +1,48 @@
+{
+  "name": "campus-print-v1",
+  "version": "1.4.0",
+  "private": true,
+  "description": "校园打印：学生下单、人工核款、经营履约与七天私有文件清理",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24.16.0 <25",
+    "npm": ">=11"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env backend/server.js",
+    "dev": "node --env-file-if-exists=.env --watch backend/server.js",
+    "db:init": "node --env-file-if-exists=.env scripts/backend/init-db.js",
+    "admin:init": "node --env-file-if-exists=.env scripts/backend/init-admin.js",
+    "test": "node scripts/deploy/verify.js",
+    "test:base": "node --test --test-concurrency=1 tests/base/*.test.js",
+    "test:files": "node --test --test-concurrency=1 tests/files/*.test.js",
+    "test:foundation-ui": "npm run test:ui",
+    "contract:check": "node scripts/admin/check-contract.js",
+    "files:cleanup": "node --env-file-if-exists=.env scripts/backend/files-maintenance.js cleanup",
+    "files:manifest": "node --env-file-if-exists=.env scripts/backend/files-maintenance.js manifest",
+    "files:reconcile": "node --env-file-if-exists=.env scripts/backend/files-maintenance.js reconcile",
+    "test:api": "node --test --test-concurrency=1 tests/base/*.test.js tests/files/*.test.js tests/business/*.test.js tests/user/api.test.js tests/retention/*.test.js tests/e2e/deployment.test.js tests/e2e/production.test.js tests/e2e/merchant-backup.test.js",
+    "test:ui": "node --test --test-concurrency=1 tests/admin/browser.test.js tests/admin/*.browser.test.js tests/user/browser.test.js tests/user/guest-browser.test.js tests/user/*.browser.test.js tests/e2e/browser.test.js tests/e2e/*.browser.test.js tests/security/browser.test.js",
+    "test:retention": "node --test --test-concurrency=1 tests/retention/*.test.js",
+    "deploy:package": "node scripts/deploy/package.js",
+    "backup:create": "node --env-file-if-exists=.env scripts/deploy/backup.js backup",
+    "backup:authority": "node --env-file-if-exists=.env scripts/deploy/backup.js authority",
+    "backup:restore": "node --env-file-if-exists=.env scripts/deploy/backup.js restore",
+    "test:security": "node --test --test-concurrency=1 tests/base/account-security.test.js tests/security/browser.test.js",
+    "test:ui:fixtures": "node --test --test-concurrency=1 tests/user/coupon-ui.test.js tests/admin/coupon-ui.test.js tests/admin/coupon-order-ui.test.js",
+    "test:merchant-backup": "node --test --test-concurrency=1 tests/e2e/merchant-backup.test.js"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "1.0.11",
+    "busboy": "1.6.0",
+    "express": "5.3.0",
+    "pdf-lib": "1.17.1",
+    "pdfjs-dist": "6.4.299",
+    "sharp": "0.35.5"
+  },
+  "devDependencies": {
+    "@apidevtools/swagger-parser": "13.1.0",
+    "js-yaml": "5.4.3",
+    "playwright-core": "1.64.0"
+  }
+}

@@ -1,0 +1,47 @@
+'use strict';
+const test=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs/promises');
+const path=require('node:path');
+const {DatabaseSync}=require('node:sqlite');
+const {randomUUID,createHash}=require('node:crypto');
+const {legacyFixture}=require('../helpers/legacy-guest');
+const {TEST_ROOT,PROJECT,configAt,Client,removeTestStorage}=require('../helpers/runtime');
+const {startServer}=require('../../backend/server');
+const h=require('./helpers');
+const m=require('./merchant-helpers');
+const sha=value=>createHash('sha256').update(value).digest('hex');
+test('1.1.0旧库升104/105：旧单码不猜渠道、历史工单、金额/券/收退款/期限不变',async t=>{
+  const name=randomUUID(),root=path.join(TEST_ROOT,name),now=new Date(),legacy=await legacyFixture(root,{clock:()=>new Date(now)}),config=configAt(root,{clock:()=>new Date(now)});
+  let runtime; t.after(async()=>{await runtime?.close();await removeTestStorage(name);});
+  const raw=new DatabaseSync(config.dbPath),assetId=randomUUID(),ticketId=randomUUID(),expiresAt=new Date(now.getTime()+3*86400000).toISOString();
+  const image=await h.fixture('sample-chinese.png');const asset={assetId,mimeType:'image/png',byteSize:image.length,sha256:sha(image)};
+  for(const migration of ['102-guest-access.sql','103-pricing-coupons.sql']){const sql=await fs.readFile(path.join(PROJECT,'backend/migrations',migration),'utf8');raw.exec(sql);raw.prepare('INSERT INTO schema_migrations VALUES(?,?,?)').run(migration,sha(sql),now.toISOString());}
+  raw.prepare('UPDATE print_settings SET paymentAssetJson=? WHERE id=1').run(JSON.stringify(asset));
+  raw.prepare("INSERT INTO order_tickets(id,orderId,userId,subject,status,version,createdAt,updatedAt) VALUES(?,?,?,?,'open',1,?,?)").run(ticketId,legacy.orderId,legacy.users.student.id,'1.1历史工单',now.toISOString(),now.toISOString());
+  raw.prepare("INSERT INTO ticket_updates(id,ticketId,authorId,message,status,createdAt) VALUES(?,?,?,?,'open',?)").run(randomUUID(),ticketId,legacy.users.student.id,'升级前详细说明',now.toISOString());
+  const batchId=randomUUID();raw.prepare('INSERT INTO coupon_batches(id,quantity,rulesJson,createdAt,expiresAt,createdBy) VALUES(?,1,?,?,?,?)').run(batchId,'{}',now.toISOString(),expiresAt,legacy.users.admin.id);
+  const couponId=randomUUID(),code='2'.repeat(25);raw.prepare("INSERT INTO coupons(id,batchId,codeHash,code,type,minPrintAmountFen,payRatePercent,createdAt,expiresAt,createdBy) VALUES(?,?,?,?,'discount',0,85,?,?,?)").run(couponId,batchId,sha(code),code,now.toISOString(),expiresAt,legacy.users.admin.id);
+  raw.prepare("UPDATE print_orders SET paymentStatus='confirmed',lifecycle='completed',productionStatus='printed',productionProgress=52,deliveryStatus='delivered',completedAt=?,filesExpireAt=? WHERE id=?").run(new Date(now.getTime()-4*86400000).toISOString(),expiresAt,legacy.orderId);
+  raw.prepare('INSERT INTO payment_receipts(id,orderId,amountFen,channel,reference,referenceKey,confirmedAt,confirmedBy,note) VALUES(?,?,1300,?,?,?,?,?,?)').run(randomUUID(),legacy.orderId,'other','legacy-software','legacy-software',now.toISOString(),legacy.users.admin.id,'旧软件收款夹具');
+  raw.prepare("INSERT INTO order_refunds(id,orderId,status,amountFen,reason,createdAt,createdBy,paidAt,paidBy,payoutReference,payoutReferenceKey,fulfillmentDecision) VALUES(?,?,'paid_out',50,?,?,?,?,?,?,?,'stop')").run(randomUUID(),legacy.orderId,'历史软件退款',now.toISOString(),legacy.users.admin.id,now.toISOString(),legacy.users.admin.id,'legacy-refund','legacy-refund');
+  const fileId=JSON.parse(legacy.itemsJson)[0].fileId;
+  raw.prepare("INSERT INTO files(id,ownerId,originalName,mimeType,byteSize,sourceSha256,sourcePageCount,status,claimedOrderId,expiresAt,uploadedAt,temporaryExpiresAt) VALUES(?,?,?,'image/png',?,?,1,'ready',?,?,?,?)").run(fileId,legacy.users.student.id,'legacy-software.png',image.length,sha(image),legacy.orderId,expiresAt,now.toISOString(),expiresAt);
+  const snapshots={};for(const table of ['users','print_orders','print_quotes','coupons','coupon_batches','payment_receipts','order_refunds','files','ticket_updates'])snapshots[table]=raw.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all();raw.close();
+  await fs.mkdir(config.paymentRoot,{recursive:true});await fs.writeFile(path.join(config.paymentRoot,assetId+'.png'),image);
+  await fs.mkdir(path.join(config.fileRoot,fileId),{recursive:true});await fs.writeFile(path.join(config.fileRoot,fileId,'original.bin'),image);
+  runtime=await startServer(config);
+  for(const [table,rows] of Object.entries(snapshots)){const columns=Object.keys(rows[0]||{}).map(c=>'"'+c+'"').join(',')||'*';assert.deepEqual(runtime.db.all(`SELECT ${columns} FROM ${table} ORDER BY rowid`),rows,table+' preserved');}
+  assert.equal(runtime.db.get('SELECT COUNT(*) n FROM schema_migrations').n,10);
+  const payment=runtime.context.orders.printConfig().payment;assert.equal(payment.legacy.available,true);assert(payment.channels.every(c=>!c.configured));assert.equal(payment.qrUrl,'/api/public/payment-qr');
+  const operator=new Client(runtime,{surface:'admin'});operator.cookie='cp_session='+legacy.sessions.admin.token;operator.csrf=legacy.sessions.admin.csrf;
+  const ticket=h.data(await operator.request('GET','/api/admin/tickets'));assert.equal(ticket.items[0].feedbackType,'other');assert.equal(ticket.items[0].contactValue,null);
+  const guest=new Client(runtime);await guest.guest();const codeDto=h.data(await operator.request('GET',`/api/admin/orders/${legacy.orderId}/query-code`));h.data(await guest.request('POST','/api/orders/recover',{queryCode:codeDto.queryCode}));
+  const read=h.data(await guest.request('GET',`/api/me/tickets/${ticketId}`));assert.equal(read.feedbackType,'other');assert.equal(read.contactProvided,false);assert(!Object.hasOwn(read,'contactValue'));
+  assert.equal((await guest.request('GET','/api/public/payment-qr',undefined,{raw:true})).status,200);assert.equal((await guest.request('GET','/api/public/payment-qr/wechat')).status,404);
+  const qr=h.data(await m.image(operator,'/api/admin/payment-qr/wechat'));assert.equal(qr.payment.legacy.available,true);assert.equal(qr.payment.channels[0].available,true);assert.equal(runtime.db.get('SELECT paymentAssetJson FROM print_settings WHERE id=1').paymentAssetJson,JSON.stringify(asset));
+  const orphanId=randomUUID();await fs.writeFile(path.join(config.advertisementRoot,orphanId+'.png'),image);
+  await runtime.close();runtime=await startServer(config);assert.equal((await fs.readdir(config.advertisementRoot)).length,0);assert.equal(runtime.context.orders.payments.asset().assetId,assetId);
+  assert.equal(runtime.db.get('PRAGMA integrity_check').integrity_check,'ok');assert.deepEqual(runtime.db.all('PRAGMA foreign_key_check'),[]);
+  await m.evidence('merchant-upgrade',{fromMigrations:7,toMigrations:10,preservedTables:Object.keys(snapshots),oldAmountFen:1300,oldQrUnassigned:true,legacyTicketType:'other',existingFileDeadline:expiresAt,orphanRecovered:true,integrity:'ok',foreignKeyErrors:0});
+});

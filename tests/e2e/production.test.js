@@ -1,0 +1,24 @@
+'use strict';
+const test=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs/promises');
+const path=require('node:path');
+const http=require('node:http');
+const {isolated,PROJECT,TEST_PASSWORD}=require('../helpers/runtime');
+const {createAdmin}=require('../../backend/auth');
+test('D 生产配置来源校验、可信代理及 Secure Cookie 的真实 HTTP 软件验证', async t=>{
+  const origin='https://print.example.test';const runtime=await isolated({production:true,publicOrigin:origin,trustProxy:['loopback'],studentCookieName:'__Host-cp_student_session',adminCookieName:'__Host-cp_admin_session'});t.after(()=>runtime.destroy());
+  const local='http://127.0.0.1:'+runtime.server.address().port,headers={Host:'print.example.test',Origin:origin,'X-Forwarded-Proto':'https'};
+  const call=(route,options={})=>new Promise((resolve,reject)=>{const request=http.request(local+route,{method:options.method||'GET',headers:options.headers},response=>{const chunks=[];response.on('data',chunk=>chunks.push(chunk));response.on('end',()=>{const text=Buffer.concat(chunks).toString();resolve({status:response.statusCode,headers:{get:name=>Array.isArray(response.headers[name])?response.headers[name].join(','):response.headers[name]},json:async()=>JSON.parse(text)});});});request.on('error',reject);request.end(options.body);});
+  const csrf=await call('/api/auth/csrf',{headers:{...headers,'X-CP-Surface':'student'}});assert.equal(csrf.status,200);const cookie=csrf.headers.get('set-cookie');assert(/^__Host-cp_student_session=/.test(cookie),'Production student cookie name');assert(/; Secure/.test(cookie),'Secure');assert(/; HttpOnly/.test(cookie),'HttpOnly');assert(/; SameSite=Lax/.test(cookie),'SameSite');assert(/; Path=\//.test(cookie),'Path');assert(!/; Domain=/i.test(cookie));assert.match(csrf.headers.get('strict-transport-security'),/max-age=31536000/);const body=await csrf.json();
+  const guest=await call('/api/auth/guest',{method:'POST',headers:{...headers,'X-CP-Surface':'student',Cookie:cookie.split(';')[0],'X-CSRF-Token':body.data.csrfToken,'Content-Type':'application/json'},body:'{}'});assert.equal(guest.status,200);assert(/^__Host-cp_student_session=/.test(guest.headers.get('set-cookie')),'Guest production cookie');
+  const blocked=await call('/api/auth/register',{method:'POST',headers:{...headers,'X-CP-Surface':'student',Cookie:guest.headers.get('set-cookie').split(';')[0],'X-CSRF-Token':guest.headers.get('x-csrf-token'),'Content-Type':'application/json'},body:JSON.stringify({username:'c_https_test',password:TEST_PASSWORD})});assert.equal(blocked.status,403);
+  await createAdmin(runtime.db,runtime.config,{username:'c_https_admin',password:TEST_PASSWORD,nickname:'隔离管理员'});
+  const adminCsrf=await call('/api/auth/csrf',{headers:{...headers,'X-CP-Surface':'admin'}}),adminCsrfData=await adminCsrf.json();assert(/^__Host-cp_admin_session=/.test(adminCsrf.headers.get('set-cookie')),'Admin production cookie');
+  const adminLogin=await call('/api/auth/admin-login',{method:'POST',headers:{...headers,'X-CP-Surface':'admin',Cookie:adminCsrf.headers.get('set-cookie').split(';')[0],'X-CSRF-Token':adminCsrfData.data.csrfToken,'Content-Type':'application/json'},body:JSON.stringify({username:'c_https_admin',password:TEST_PASSWORD})});assert.equal(adminLogin.status,200);assert(/^__Host-cp_admin_session=/.test(adminLogin.headers.get('set-cookie')),'Admin login rotates only admin cookie');
+  assert.equal((await call('/api/public/config',{headers:{...headers,Origin:'https://evil.example'}})).status,403);
+  assert.equal((await call('/api/public/config',{headers:{...headers,Host:'evil.example'}})).status,403);
+  assert.equal((await call('/api/public/config',{headers:{...headers,'Sec-Fetch-Site':'cross-site'}})).status,403);
+  const report={kind:'C-production-policy-via-local-http-and-trusted-proxy-headers',cookie:{names:['__Host-cp_student_session','__Host-cp_admin_session'],secure:true,httpOnly:true,sameSite:'Lax',path:'/',domainAttribute:false},hsts:true,guestStatus:200,studentRegistrationDisabled:403,adminLogin:200,wrongOrigin:403,wrongHost:403,crossSite:403,realTlsCertificate:false,publicDeployment:false};
+  const output=process.env.CP_VERIFICATION_DIR||path.join(PROJECT,'docs/verification/guest-pricing-coupons-v1.1.0/C/local-production');await fs.mkdir(output,{recursive:true});await fs.writeFile(path.join(output,'production-policy.json'),JSON.stringify(report,null,2));
+});

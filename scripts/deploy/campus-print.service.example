@@ -1,0 +1,18 @@
+[Unit]
+Description=CampusPrint V1
+After=network.target
+
+[Service]
+Type=simple
+User=campusprint
+WorkingDirectory=/opt/campus-print
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node --env-file=/opt/campus-print/.env /opt/campus-print/backend/server.js
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=240
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

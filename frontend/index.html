@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#197565">
+  <title>校园打印</title>
+  <link rel="stylesheet" href="/shared/base.css">
+  <link rel="stylesheet" href="/shared/merchant.css">
+  <link rel="stylesheet" href="/user/user.css">
+  <script type="module" src="/user/bootstrap.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#content" id="skip-link">跳到主要内容</a>
+  <header class="student-header">
+    <div class="header-inner">
+      <a class="student-brand" href="#home" aria-label="校园打印 / Campus Print">
+        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M7 8V3h10v5M7 17H4V9h16v8h-3M7 13h10v8H7z"/><path d="M17 11h1"/></svg></span>
+        <span id="brand-name">校园打印</span>
+      </a>
+      <span class="service-chip" id="service-state" role="status"></span>
+      <button class="button account-button" type="button" id="student-account">我的</button>
+    </div>
+  </header>
+  <nav class="student-nav" aria-label="学生导航 / Student navigation">
+    <div class="nav-inner">
+      <a href="#home" data-view="home"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v11H3zM9 21v-8h6v8"/></svg><span>服务首页</span></a>
+      <a href="#print" data-view="print"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 8V3h10v5M7 17H3V9h18v8h-4M7 13h10v8H7z"/></svg><span>打印下单</span></a>
+      <a href="#orders" data-view="orders"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18H6zM9 8h6M9 12h6M9 16h4"/></svg><span>我的订单</span></a>
+      <a href="#support" data-view="support"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v12H9l-5 4z"/></svg><span>售后服务</span></a>
+      <a href="#me" data-view="me"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="7" r="4"/><path d="M4 21v-3a8 8 0 0 1 16 0v3"/></svg><span>我的</span></a>
+    </div>
+  </nav>
+  <div id="global-message" class="global-message" role="status" aria-live="polite" hidden></div>
+  <main id="content" class="student-main" tabindex="-1" aria-busy="true"><p class="notice">正在加载服务… / Loading service…</p></main>
+  <footer class="student-footer" id="student-footer"></footer>
+  <noscript>请启用 JavaScript 使用上传与下单功能。 / Enable JavaScript to upload and order.</noscript>
+</body>
+</html>

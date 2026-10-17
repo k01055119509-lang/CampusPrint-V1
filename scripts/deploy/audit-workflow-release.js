@@ -1,0 +1,21 @@
+'use strict';
+const fs=require('node:fs/promises'),path=require('node:path'),{createHash}=require('node:crypto');
+const ROOT=path.resolve(__dirname,'../..'),sha=bytes=>createHash('sha256').update(bytes).digest('hex');
+async function main(){
+  const output=path.resolve(process.argv[2]),directory=path.join(ROOT,'dist/CampusPrint-V1.3.0-20261015-C'),archive=JSON.parse(await fs.readFile(path.join(output,'release-archive.json'),'utf8')),manifest=JSON.parse(await fs.readFile(path.join(directory,'package-manifest.json'),'utf8'));
+  if(sha(await fs.readFile(archive.archive))!==archive.sha256)throw Error('Final ZIP checksum changed');
+  const rows=[];for(const row of manifest.files){const bytes=await fs.readFile(path.join(directory,row.path));if(bytes.length!==row.bytes||sha(bytes)!==row.sha256)throw Error('Release member mismatch: '+row.path);if(!['package.json','package-lock.json'].includes(row.path)&&sha(await fs.readFile(path.join(ROOT,row.path)))!==row.sha256)throw Error('Release/source mismatch: '+row.path);rows.push({path:row.path,matched:true});}
+  const expectedPackage=JSON.parse(await fs.readFile(path.join(ROOT,'package.json'),'utf8'));delete expectedPackage.devDependencies;expectedPackage.scripts=Object.fromEntries(Object.entries(expectedPackage.scripts).filter(([key])=>['start','db:init','admin:init','files:cleanup','files:manifest','files:reconcile','backup:create','backup:authority','backup:restore'].includes(key)));
+  const expectedLock=JSON.parse(await fs.readFile(path.join(ROOT,'package-lock.json'),'utf8'));delete expectedLock.packages[''].devDependencies;
+  for(const [name,value]of [['package.json',expectedPackage],['package-lock.json',expectedLock]])if((await fs.readFile(path.join(directory,name),'utf8'))!==JSON.stringify(value,null,2)+'\n')throw Error('Undocumented package metadata change: '+name);
+  for(const required of ['backend/migrations/105-workflow-simplification.sql','backend/orders/fulfillment.js','backend/orders/reasons.js','frontend/user/workflow-views.js','frontend/admin/workflow.js','frontend/admin/order-operations.js','docs/V1.3.0验收报告.md'])if(!manifest.files.some(row=>row.path===required))throw Error('Release missing '+required);
+  if(manifest.files.some(row=>/(^|\/)(var|tmp|tests|assets-inbox|node_modules|\.env)(\/|$)|\.(sqlite|db)$/i.test(row.path)))throw Error('Private runtime member found');
+  const a=JSON.parse(await fs.readFile(path.join(ROOT,'docs/verification/workflow-simplification-v1.3.0/A/A-20261015-backend/source-final.json'),'utf8')),aByPath=new Map(a.rows.map(row=>[row.path,row]));
+  const prior=JSON.parse(await fs.readFile(path.join(ROOT,'docs/verification/workflow-simplification-v1.3.0/C/C-20261015-admin/management-stage-audit.json'),'utf8'));
+  const protectedA=await Promise.all(prior.protected.map(async row=>({path:row.path,matches:sha(await fs.readFile(path.join(ROOT,row.path)))===aByPath.get(row.path).sha256})));if(protectedA.some(row=>!row.matches))throw Error('A protected source changed');
+  const retained=[];for(const file of (await fs.readdir(path.join(ROOT,'dist'))).filter(name=>name.endsWith('.zip'))){const bytes=await fs.readFile(path.join(ROOT,'dist',file));retained.push({file,bytes:bytes.length,sha256:sha(bytes)});}
+  if(retained.find(row=>row.file==='CampusPrint-V1.2.0-20261015-B.zip')?.sha256!=='273decf69c1a03f285ffc5ae702ee6e71fbd1d0558380c32b32dd83e0b53cc45')throw Error('Prior 1.2.0 release changed');
+  const report={at:new Date().toISOString(),passed:true,productVersion:manifest.version,archive:archive.archive,archiveBytes:(await fs.stat(archive.archive)).size,archiveSha256:archive.sha256,verifiedFiles:rows.length,zipMemberCount:rows.length+1,allMembersMatchSourceExceptDocumentedPackageMetadata:true,privateDataIncluded:false,requiredWorkflowModulesIncluded:true,protectedA,retainedArchives:retained};
+  await fs.writeFile(path.join(output,'release-gate.json'),JSON.stringify(report,null,2));console.log(JSON.stringify({passed:true,archiveBytes:report.archiveBytes,archiveSha256:archive.sha256,verifiedFiles:rows.length,protectedAFiles:protectedA.length,priorArchivesRetained:retained.length-1}));
+}
+if(require.main===module)main().catch(error=>{console.error(error);process.exitCode=1;});

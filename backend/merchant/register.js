@@ -1,0 +1,25 @@
+'use strict';
+const { invalid } = require('../errors');
+const { AdvertisementService } = require('./advertisements');
+const { AnnouncementService } = require('./announcement');
+module.exports = function registerMerchant(context) {
+  const { add, orders, sendArtifact } = context;
+  const payments = orders.payments, ads = context.advertisements = new AdvertisementService(context);
+  const noQuery = req=>{ if (Object.keys(req.query).length) invalid('query','不支持查询参数'); };
+  const announcement=new AnnouncementService(context);
+  add('get','/public/announcement',{},req=>{noQuery(req);return announcement.read();});
+  add('get','/admin/announcement',{role:'admin'},req=>{noQuery(req);return announcement.read(true);});
+  add('patch','/admin/announcement',{role:'admin',bodyKeys:['expectedVersion','enabled','content']},req=>{noQuery(req);return announcement.save(req);});
+  add('post','/admin/payment-qr/:channel',{role:'admin',multipart:true,transaction:false},req=>{ noQuery(req); return payments.replace(req,req.params.channel); });
+  add('delete','/admin/payment-qr/:channel',{role:'admin',bodyKeys:['expectedVersion'],transaction:false},req=>{ noQuery(req); return payments.clear(req,req.params.channel); });
+  add('get','/public/payment-qr/:channel',{raw:true,transaction:false},async(req,res)=>{ noQuery(req); await sendArtifact(req,res,await payments.open(req.params.channel)); });
+  add('get','/public/advertisements',{},req=>{ noQuery(req); return ads.list(); });
+  add('get','/public/advertisements/:id/image',{raw:true,transaction:false},async(req,res)=>{ noQuery(req); await sendArtifact(req,res,await ads.open(req.params.id)); });
+  add('get','/admin/advertisements',{role:'admin',transaction:false},async req=>{ noQuery(req); ads.requireEnabled(); await ads.drain(); return ads.list(true); });
+  add('patch','/admin/advertisements',{role:'admin',bodyKeys:['expectedVersion','intervalSeconds','order']},req=>{ noQuery(req); return ads.patch(req); });
+  add('post','/admin/advertisements',{role:'admin',multipart:true,transaction:false,status:201},req=>{ noQuery(req); return ads.upload(req); });
+  add('patch','/admin/advertisements/:id',{role:'admin',bodyKeys:['expectedVersion','enabled','altText']},req=>{ noQuery(req); return ads.patchItem(req); });
+  add('delete','/admin/advertisements/:id',{role:'admin',bodyKeys:['expectedVersion'],transaction:false},req=>{ noQuery(req); return ads.remove(req); });
+  add('post','/admin/advertisements/:id/image',{role:'admin',multipart:true,transaction:false},req=>{ noQuery(req); return ads.upload(req,true); });
+  add('get','/admin/advertisements/:id/image',{role:'admin',raw:true,transaction:false},async(req,res)=>{ noQuery(req); await sendArtifact(req,res,await ads.open(req.params.id,true)); });
+};

@@ -1,0 +1,12 @@
+'use strict';
+const {spawn}=require('node:child_process');
+const path=require('node:path');
+const fs=require('node:fs');
+const {EVIDENCE}=require('../../tests/user/helpers');
+const project=path.resolve(__dirname,'../..');
+fs.mkdirSync(EVIDENCE,{recursive:true});
+const stream=fs.createWriteStream(path.join(EVIDENCE,'browser-tests.txt'));
+const child=spawn(process.execPath,['--test','--test-concurrency=1','tests/user/browser.test.js','tests/user/guest-browser.test.js','tests/user/workflow.browser.test.js','tests/user/cancellation.browser.test.js'],{cwd:project,stdio:['ignore','pipe','pipe']});
+for(const pipe of [child.stdout,child.stderr])pipe.on('data',chunk=>{stream.write(chunk);process.stdout.write(chunk);});
+child.on('exit',code=>{stream.end();process.exitCode=code??1;});
+child.on('error',error=>{console.error(error);stream.end();process.exitCode=1;});

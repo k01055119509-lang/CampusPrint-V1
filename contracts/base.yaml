@@ -1,0 +1,2201 @@
+openapi: 3.0.3
+info:
+  title: CampusPrint Foundation API
+  version: 1.4.0
+  description: 双 Cookie/CSRF、固定七天访客与保留的账号功能；休息时拒绝新上传；广告能力默认关闭；UTC 时间，上海显示。经营业务见 print.yaml。
+servers:
+  - url: /api
+paths:
+  /auth/csrf:
+    get:
+      summary: 获取匿名或当前会话 CSRF
+      description: 首次获取创建匿名 HttpOnly cookie。JSON 写请求和 multipart 上传均使用 X-CSRF-Token。
+      tags:
+        - Foundation
+      x-roles: []
+      security: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  success:
+                    type: boolean
+                    enum:
+                      - true
+                  data:
+                    $ref: '#/components/schemas/Csrf'
+                required:
+                  - success
+                  - data
+        '403':
+          $ref: '#/components/responses/Error403'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '500':
+          $ref: '#/components/responses/Error500'
+      parameters:
+        - name: X-CP-Surface
+          in: header
+          schema:
+            type: string
+            enum:
+              - student
+              - admin
+            default: student
+          description: 选择当前端的 Cookie/CSRF；不能作为授权凭证或回退到另一端。
+      x-cp-surface: select
+  /auth/guest:
+    post:
+      summary: 初始化独立访客或复用当前学生身份
+      description: 学生上下文，先取 CSRF。固定七天自访客创建起计，不续期。IP 限流持久化。返回 X-CSRF-Token。
+      tags:
+        - Foundation
+      x-roles: []
+      security:
+        - StudentSessionCookie: []
+          CsrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties: {}
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  success:
+                    type: boolean
+                    enum:
+                      - true
+                  data:
+                    $ref: '#/components/schemas/Identity'
+                required:
+                  - success
+                  - data
+          headers:
+            X-CSRF-Token:
+              schema:
+                type: string
+              description: 新访客旋转后的当前学生 CSRF；复用身份时不旋转。
+            Set-Cookie:
+              schema:
+                type: string
+              description: 该端独立 HttpOnly Cookie；生产使用 __Host- 前缀、Secure、SameSite=Lax。
+        '400':
+          $ref: '#/components/responses/Error400'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '413':
+          $ref: '#/components/responses/Error413'
+        '415':
+          $ref: '#/components/responses/Error415'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '500':
+          $ref: '#/components/responses/Error500'
+      parameters:
+        - name: X-CP-Surface
+          in: header
+          schema:
+            type: string
+            enum:
+              - student
+            default: student
+          description: 选择当前端的 Cookie/CSRF；不能作为授权凭证或回退到另一端。
+      x-cp-surface: student
+  /auth/register:
+    post:
+      summary: 注册普通用户并登录
+      description: STUDENT_ACCOUNTS_ENABLED 默认 false；关闭返回 403 STUDENT_ACCOUNTS_DISABLED。
+      tags:
+        - Foundation
+      x-roles: []
+      security:
+        - StudentSessionCookie: []
+          CsrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Registration'
+      responses:
+        '201':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  success:
+                    type: boolean
+                    enum:
+                      - true
+                  data:
+                    $ref: '#/components/schemas/Identity'
+                required:
+                  - success
+                  - data
+          headers:
+            X-CSRF-Token:
+              description: 登录/注册旋转后的 CSRF，后续写入须使用此值
+              schema:
+                type: string
+            Set-Cookie:
+              schema:
+                type: string
+              description: 该端独立 HttpOnly Cookie；生产使用 __Host- 前缀、Secure、SameSite=Lax。
+        '400':
+          $ref: '#/components/responses/Error400'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '413':
+          $ref: '#/components/responses/Error413'
+        '415':
+          $ref: '#/components/responses/Error415'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '500':
+          $ref: '#/components/responses/Error500'
+      parameters:
+        - name: X-CP-Surface
+          in: header
+          schema:
+            type: string
+            enum:
+              - student
+            default: student
+          description: 选择当前端的 Cookie/CSRF；不能作为授权凭证或回退到另一端。
+      x-cp-surface: student
+  /auth/login:
+    post:
+      summary: 学生登录
+      description: 账号关闭返回 403 STUDENT_ACCOUNTS_DISABLED。访客主体没有可登录密码。
+      tags:
+        - Foundation
+      x-roles: []
+      security:
+        - StudentSessionCookie: []
+          CsrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Login'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  success:
+                    type: boolean
+                    enum:
+                      - true
+                  data:
+                    $ref: '#/components/schemas/Identity'
+                required:
+                  - success
+                  - data
+          headers:
+            X-CSRF-Token:
+              description: 登录/注册旋转后的 CSRF，后续写入须使用此值
+              schema:
+                type: string
+            Set-Cookie:
+              schema:
+                type: string
+              description: 该端独立 HttpOnly Cookie；生产使用 __Host- 前缀、Secure、SameSite=Lax。
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '413':
+          $ref: '#/components/responses/Error413'
+        '415':
+          $ref: '#/components/responses/Error415'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '500':
+          $ref: '#/components/responses/Error500'
+      parameters:
+        - name: X-CP-Surface
+          in: header
+          schema:
+            type: string
+            enum:
+              - student
+            default: student
+          description: 选择当前端的 Cookie/CSRF；不能作为授权凭证或回退到另一端。
+      x-cp-surface: student
+  /auth/admin-login:
+    post:
+      summary: 管理员独立登录
+      description: 固定管理员上下文；CSRF 也须使用管理员上下文获取。普通账号不能从本接口登录。管理员由 admin:init 创建，没有默认密码。
+      tags:
+        - Foundation
+      x-roles: []
+      security:
+        - AdminSessionCookie: []
+          CsrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Login'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  success:
+                    type: boolean
+                    enum:
+                      - true
+                  data:
+                    $ref: '#/components/schemas/Identity'
+                required:
+                  - success
+                  - data
+          headers:
+            X-CSRF-Token:
+              description: 登录/注册旋转后的 CSRF，后续写入须使用此值
+              schema:
+                type: string
+            Set-Cookie:
+              schema:
+                type: string
+              description: 该端独立 HttpOnly Cookie；生产使用 __Host- 前缀、Secure、SameSite=Lax。
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '413':
+          $ref: '#/components/responses/Error413'
+        '415':
+          $ref: '#/components/responses/Error415'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '500':
+          $ref: '#/components/responses/Error500'
+      parameters:
+        - name: X-CP-Surface
+          in: header
+          schema:
+            type: string
+            enum:
+              - admin
+            default: admin
+          description: 选择当前端的 Cookie/CSRF；不能作为授权凭证或回退到另一端。
+      x-cp-surface: admin
+  /auth/me:
+    get:
+      summary: 当前身份与登录活跃信息
+      description: ''
+      tags:
+        - Foundation
+      x-roles:
+        - user
+        - admin
+      security:
+        - StudentSessionCookie: []
+        - AdminSessionCookie: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  success:
+                    type: boolean
+                    enum:
+                      - true
+                  data:
+                    $ref: '#/components/schemas/Identity'
+                required:
+                  - success
+                  - data
+          headers:
+            X-CSRF-Token:
+              description: 登录/注册旋转后的 CSRF，后续写入须使用此值
+              schema:
+                type: string
+            Set-Cookie:
+              schema:
+                type: string
+              description: 该端独立 HttpOnly Cookie；生产使用 __Host- 前缀、Secure、SameSite=Lax。
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '500':
+          $ref: '#/components/responses/Error500'
+      parameters:
+        - name: X-CP-Surface
+          in: header
+          schema:
+            type: string
+            enum:
+              - student
+              - admin
+            default: student
+          description: 选择当前端的 Cookie/CSRF；不能作为授权凭证或回退到另一端。
+      x-cp-surface: select
+  /auth/logout:
+    post:
+      summary: 退出并使会话失效
+      description: ''
+      tags:
+        - Foundation
+      x-roles:
+        - user
+        - admin
+      security:
+        - StudentSessionCookie: []
+          CsrfToken: []
+        - AdminSessionCookie: []
+          CsrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties: {}
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  success:
+                    type: boolean
+                    enum:
+                      - true
+                  data:
+                    type: object
+                    additionalProperties: false
+                    properties:
+                      loggedOut:
+                        type: boolean
+                        enum:
+                          - true
+                    required:
+                      - loggedOut
+                required:
+                  - success
+                  - data
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '413':
+          $ref: '#/components/responses/Error413'
+        '415':
+          $ref: '#/components/responses/Error415'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '500':
+          $ref: '#/components/responses/Error500'
+      parameters:
+        - name: X-CP-Surface
+          in: header
+          schema:
+            type: string
+            enum:
+              - student
+              - admin
+            default: student
+          description: 选择当前端的 Cookie/CSRF；不能作为授权凭证或回退到另一端。
+      x-cp-surface: select
+  /me/profile:
+    patch:
+      summary: 修改昵称
+      description: ' 访客拒绝；学生账号关闭时返回 403 STUDENT_ACCOUNTS_DISABLED，管理员仍可用。'
+      tags:
+        - Foundation
+      x-roles:
+        - user
+        - admin
+      security:
+        - StudentSessionCookie: []
+          CsrfToken: []
+        - AdminSessionCookie: []
+          CsrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                nickname:
+                  type: string
+                  minLength: 1
+                  maxLength: 80
+              required:
+                - nickname
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  success:
+                    type: boolean
+                    enum:
+                      - true
+                  data:
+                    $ref: '#/components/schemas/Identity'
+                required:
+                  - success
+                  - data
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '413':
+          $ref: '#/components/responses/Error413'
+        '415':
+          $ref: '#/components/responses/Error415'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '500':
+          $ref: '#/components/responses/Error500'
+      parameters:
+        - name: X-CP-Surface
+          in: header
+          schema:
+            type: string
+            enum:
+              - student
+              - admin
+            default: student
+          description: 选择当前端的 Cookie/CSRF；不能作为授权凭证或回退到另一端。
+      x-cp-surface: select
+      x-identity-kinds:
+        - account
+  /me/security-questions:
+    get:
+      summary: 获取当前账号的密保设置
+      description: 仅返回问题、配置状态、版本和可选问题；从不返回答案或答案哈希。 访客拒绝；学生账号关闭时返回 403 STUDENT_ACCOUNTS_DISABLED，管理员仍可用。
+      tags:
+        - Foundation
+      x-roles:
+        - user
+        - admin
+      security:
+        - StudentSessionCookie: []
+        - AdminSessionCookie: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  success:
+                    type: boolean
+                    enum:
+                      - true
+                  data:
+                    $ref: '#/components/schemas/SecurityState'
+                required:
+                  - success
+                  - data
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '500':
+          $ref: '#/components/responses/Error500'
+      parameters:
+        - name: X-CP-Surface
+          in: header
+          schema:
+            type: string
+            enum:
+              - student
+              - admin
+            default: student
+          description: 选择当前端的 Cookie/CSRF；不能作为授权凭证或回退到另一端。
+      x-cp-surface: select
+      x-identity-kinds:
+        - account
+    post:
+      summary: 一次设置或更换三个密保问题
+      description: >-
+        首次 expectedVersion=0，必须提供 currentPassword；更换必须提供全部三个原 answers。问题不可重复。账号连续验证失败五次后须等待十五分钟；同 IP 十五分钟最多三十次提交。
+        访客拒绝；学生账号关闭时返回 403 STUDENT_ACCOUNTS_DISABLED，管理员仍可用。
+      tags:
+        - Foundation
+      x-roles:
+        - user
+        - admin
+      security:
+        - StudentSessionCookie: []
+          CsrfToken: []
+        - AdminSessionCookie: []
+          CsrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SecuritySetup'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  success:
+                    type: boolean
+                    enum:
+                      - true
+                  data:
+                    $ref: '#/components/schemas/SecurityState'
+                required:
+                  - success
+                  - data
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '413':
+          $ref: '#/components/responses/Error413'
+        '415':
+          $ref: '#/components/responses/Error415'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '500':
+          $ref: '#/components/responses/Error500'
+      parameters:
+        - name: X-CP-Surface
+          in: header
+          schema:
+            type: string
+            enum:
+              - student
+              - admin
+            default: student
+          description: 选择当前端的 Cookie/CSRF；不能作为授权凭证或回退到另一端。
+      x-cp-surface: select
+      x-identity-kinds:
+        - account
+  /me/password:
+    post:
+      summary: 验证全部密保答案后修改密码
+      description: >-
+        只对当前登录账号操作。无密保不可改密，三个答案须全对。新密码 6–12 位，仅允许英文字母和数字且二者都必须包含。成功撤销所有旧会话并为当前浏览器旋转 cookie 和 CSRF。 访客拒绝；学生账号关闭时返回 403
+        STUDENT_ACCOUNTS_DISABLED，管理员仍可用。
+      tags:
+        - Foundation
+      x-roles:
+        - user
+        - admin
+      security:
+        - StudentSessionCookie: []
+          CsrfToken: []
+        - AdminSessionCookie: []
+          CsrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordChange'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  success:
+                    type: boolean
+                    enum:
+                      - true
+                  data:
+                    type: object
+                    additionalProperties: false
+                    properties:
+                      passwordChanged:
+                        type: boolean
+                        enum:
+                          - true
+                      otherSessionsRevoked:
+                        type: boolean
+                        enum:
+                          - true
+                    required:
+                      - passwordChanged
+                      - otherSessionsRevoked
+                required:
+                  - success
+                  - data
+          headers:
+            X-CSRF-Token:
+              description: 登录/注册旋转后的 CSRF，后续写入须使用此值
+              schema:
+                type: string
+            Set-Cookie:
+              schema:
+                type: string
+              description: 该端独立 HttpOnly Cookie；生产使用 __Host- 前缀、Secure、SameSite=Lax。
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '413':
+          $ref: '#/components/responses/Error413'
+        '415':
+          $ref: '#/components/responses/Error415'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '500':
+          $ref: '#/components/responses/Error500'
+      parameters:
+        - name: X-CP-Surface
+          in: header
+          schema:
+            type: string
+            enum:
+              - student
+              - admin
+            default: student
+          description: 选择当前端的 Cookie/CSRF；不能作为授权凭证或回退到另一端。
+      x-cp-surface: select
+      x-identity-kinds:
+        - account
+  /public/config:
+    get:
+      summary: 公开基础配置和文件资源上限
+      description: capabilities 按实际模块返回；打印配置与收款状态以 /print/config 为准。
+      tags:
+        - Files
+      x-roles: []
+      security: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  success:
+                    type: boolean
+                    enum:
+                      - true
+                  data:
+                    $ref: '#/components/schemas/PublicConfig'
+                required:
+                  - success
+                  - data
+        '403':
+          $ref: '#/components/responses/Error403'
+        '500':
+          $ref: '#/components/responses/Error500'
+      parameters:
+        - name: X-CP-Surface
+          in: header
+          schema:
+            type: string
+            enum:
+              - student
+              - admin
+            default: student
+          description: 选择当前端的 Cookie/CSRF；不能作为授权凭证或回退到另一端。
+      x-cp-surface: select
+  /files:
+    post:
+      summary: 上传一个私有文件
+      description: >-
+        休息时在接收文件前返回 409 ORDERS_PAUSED；已接受上传可完成。一个 file 字段，无额外字段。multipart 不设置 JSON Content-Type，也不手工构造 boundary。202
+        表示完整接收后排队，不保证解析成功。查询 /files/{id}，失败给出 FILE_CORRUPT/FILE_ENCRYPTED/FILE_PAGE_LIMIT/FILE_PIXEL_LIMIT 等代码。
+      tags:
+        - Files
+      x-roles:
+        - user
+      security:
+        - StudentSessionCookie: []
+          CsrfToken: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                file:
+                  type: string
+                  format: binary
+              required:
+                - file
+      responses:
+        '202':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  success:
+                    type: boolean
+                    enum:
+                      - true
+                  data:
+                    $ref: '#/components/schemas/File'
+                required:
+                  - success
+                  - data
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '408':
+          $ref: '#/components/responses/Error408'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '413':
+          $ref: '#/components/responses/Error413'
+        '415':
+          $ref: '#/components/responses/Error415'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '500':
+          $ref: '#/components/responses/Error500'
+        '503':
+          $ref: '#/components/responses/Error503'
+      parameters:
+        - name: X-CP-Surface
+          in: header
+          schema:
+            type: string
+            enum:
+              - student
+            default: student
+          description: 选择当前端的 Cookie/CSRF；不能作为授权凭证或回退到另一端。
+      x-cp-surface: student
+  /files/{id}:
+    get:
+      summary: 所属文件状态与真实源页数
+      description: 普通用户仅访问自己的文件；管理员按履约访问。到期后元数据仍返回 200，status=expired，文件访问返回 410。
+      tags:
+        - Files
+      x-roles:
+        - user
+        - admin
+      security:
+        - StudentSessionCookie: []
+        - AdminSessionCookie: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: 文件标识，不接受物理路径或文件名
+        - name: X-CP-Surface
+          in: header
+          schema:
+            type: string
+            enum:
+              - student
+              - admin
+            default: student
+          description: 选择当前端的 Cookie/CSRF；不能作为授权凭证或回退到另一端。
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  success:
+                    type: boolean
+                    enum:
+                      - true
+                  data:
+                    $ref: '#/components/schemas/File'
+                required:
+                  - success
+                  - data
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '500':
+          $ref: '#/components/responses/Error500'
+      x-cp-surface: select
+    delete:
+      summary: 删除尚未绑定订单的临时文件
+      description: 先禁止访问再物理删除；deleted=false 表示删除失败等待重试，不能据此重新开放文件。
+      tags:
+        - Files
+      x-roles:
+        - user
+      security:
+        - StudentSessionCookie: []
+          CsrfToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: 文件标识，不接受物理路径或文件名
+        - name: X-CP-Surface
+          in: header
+          schema:
+            type: string
+            enum:
+              - student
+            default: student
+          description: 选择当前端的 Cookie/CSRF；不能作为授权凭证或回退到另一端。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties: {}
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  success:
+                    type: boolean
+                    enum:
+                      - true
+                  data:
+                    type: object
+                    additionalProperties: false
+                    properties:
+                      deleted:
+                        type: boolean
+                      status:
+                        type: string
+                        enum:
+                          - expired
+                      fileId:
+                        type: string
+                        format: uuid
+                    required:
+                      - deleted
+                      - status
+                      - fileId
+                required:
+                  - success
+                  - data
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '413':
+          $ref: '#/components/responses/Error413'
+        '415':
+          $ref: '#/components/responses/Error415'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '500':
+          $ref: '#/components/responses/Error500'
+        '503':
+          $ref: '#/components/responses/Error503'
+      x-cp-surface: student
+  /files/{id}/preview:
+    get:
+      summary: 原文件某页的规范化按需预览
+      description: 只生成所请求的页面。生产文件预览由 B 在报价/订单接口中调用 openArtifactForRead(purpose=preview)，不能用原文件预览代替最终生产预览。
+      tags:
+        - Files
+      x-roles:
+        - user
+        - admin
+      security:
+        - StudentSessionCookie: []
+        - AdminSessionCookie: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: 文件标识，不接受物理路径或文件名
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+            maximum: 2000
+        - name: X-CP-Surface
+          in: header
+          schema:
+            type: string
+            enum:
+              - student
+              - admin
+            default: student
+          description: 选择当前端的 Cookie/CSRF；不能作为授权凭证或回退到另一端。
+      responses:
+        '200':
+          description: '权限及当前期限检查后的 PNG；Cache-Control: no-store, private'
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Artifact-SHA256:
+              schema:
+                type: string
+            X-File-Expires-At:
+              schema:
+                type: string
+                format: date-time
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '410':
+          $ref: '#/components/responses/Error410'
+        '413':
+          $ref: '#/components/responses/Error413'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '500':
+          $ref: '#/components/responses/Error500'
+        '503':
+          $ref: '#/components/responses/Error503'
+      x-cp-surface: select
+  /admin/files/cleanup-status:
+    get:
+      summary: 查看文件清理状态
+      description: ''
+      tags:
+        - Cleanup
+      x-roles:
+        - admin
+      security:
+        - AdminSessionCookie: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  success:
+                    type: boolean
+                    enum:
+                      - true
+                  data:
+                    $ref: '#/components/schemas/CleanupStatus'
+                required:
+                  - success
+                  - data
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '500':
+          $ref: '#/components/responses/Error500'
+      parameters:
+        - name: X-CP-Surface
+          in: header
+          schema:
+            type: string
+            enum:
+              - admin
+            default: admin
+          description: 选择当前端的 Cookie/CSRF；不能作为授权凭证或回退到另一端。
+      x-cp-surface: admin
+  /admin/files/cleanup-run:
+    post:
+      summary: 按真实当前时间清理已到期文件
+      description: 不接受路径、文件名、日期或生产调时参数。失败对象维持 expired，下一次扫描重试。
+      tags:
+        - Cleanup
+      x-roles:
+        - admin
+      security:
+        - AdminSessionCookie: []
+          CsrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties: {}
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  success:
+                    type: boolean
+                    enum:
+                      - true
+                  data:
+                    $ref: '#/components/schemas/CleanupRun'
+                required:
+                  - success
+                  - data
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '413':
+          $ref: '#/components/responses/Error413'
+        '415':
+          $ref: '#/components/responses/Error415'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '500':
+          $ref: '#/components/responses/Error500'
+        '503':
+          $ref: '#/components/responses/Error503'
+      parameters:
+        - name: X-CP-Surface
+          in: header
+          schema:
+            type: string
+            enum:
+              - admin
+            default: admin
+          description: 选择当前端的 Cookie/CSRF；不能作为授权凭证或回退到另一端。
+      x-cp-surface: admin
+components:
+  securitySchemes:
+    StudentSessionCookie:
+      type: apiKey
+      in: cookie
+      name: cp_student_session
+      description: 生产 __Host-cp_student_session；访客或已开启学生账号会话。HttpOnly、SameSite=Lax、Path=/，生产 Secure。
+    AdminSessionCookie:
+      type: apiKey
+      in: cookie
+      name: cp_admin_session
+      description: 生产 __Host-cp_admin_session；仅管理员。旧 cp_session / __Host-cp_session 只经数据库角色核验迁移管理员，保留原到期时间。
+    CsrfToken:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+  schemas:
+    Error:
+      type: object
+      additionalProperties: false
+      properties:
+        success:
+          type: boolean
+          enum:
+            - false
+        error:
+          type: object
+          additionalProperties: false
+          properties:
+            code:
+              type: string
+              enum:
+                - STUDENT_ACCOUNTS_DISABLED
+                - ORDERS_PAUSED
+                - ORDER_CANCELLATION_BLOCKED
+                - PAYMENT_AMOUNT_MISMATCH
+                - FINANCIAL_EXCEPTION_RECORDING_REMOVED
+                - MERCHANT_CANCEL_REQUEST_REMOVED
+                - ORDER_HIDDEN_FROM_MERCHANT
+                - SECURITY_STATE_CHANGED
+                - SECURITY_QUESTIONS_REQUIRED
+                - SECURITY_ANSWERS_INCORRECT
+                - CURRENT_PASSWORD_INCORRECT
+                - AUTH_REQUIRED
+                - FORBIDDEN
+                - FORBIDDEN_ORIGIN
+                - NOT_FOUND
+                - VALIDATION_ERROR
+                - CONFLICT
+                - RATE_LIMITED
+                - JSON_REQUIRED
+                - MULTIPART_REQUIRED
+                - PAYLOAD_TOO_LARGE
+                - SERVICE_UNAVAILABLE
+                - MAINTENANCE
+                - INTERNAL_ERROR
+                - INVALID_FILENAME
+                - INVALID_MULTIPART
+                - UPLOAD_INTERRUPTED
+                - UPLOAD_TIMEOUT
+                - UPLOAD_BUSY
+                - FILE_EMPTY
+                - FILE_UNSUPPORTED_FORMAT
+                - FILE_FORMAT_MISMATCH
+                - FILE_CORRUPT
+                - FILE_ENCRYPTED
+                - FILE_UNSUPPORTED_CONTENT
+                - FILE_SIZE_LIMIT
+                - FILE_PIXEL_LIMIT
+                - FILE_PAGE_LIMIT
+                - FILE_OUTPUT_LIMIT
+                - FILE_STORAGE_QUOTA
+                - FILE_STORAGE_UNAVAILABLE
+                - FILE_STORAGE_MISSING
+                - FILE_LEDGER_UNAVAILABLE
+                - FILE_PROCESSING
+                - FILE_PROCESS_FAILED
+                - FILE_PROCESS_TIMEOUT
+                - FILE_PROCESS_CRASH
+                - FILE_PROCESS_RETRY_LIMIT
+                - FILE_PROCESS_UNSUPPORTED
+                - FILE_PROCESS_INVALID_RESULT
+                - FILE_QUEUE_FULL
+                - FILE_BUSY
+                - FILE_ENGINE_STOPPING
+                - FILE_INVALID_PAGES
+                - FILE_EXPIRED
+                - FILE_ALREADY_CLAIMED
+                - FILE_ARTIFACT_MISMATCH
+                - FILE_EXPIRY_IMMUTABLE
+                - FILE_INTEGRITY_FAILED
+                - PREPARATION_CONFLICT
+                - UNSAFE_STORAGE_PATH
+            message:
+              type: string
+            fields:
+              type: object
+              additionalProperties:
+                type: string
+          required:
+            - code
+            - message
+      required:
+        - success
+        - error
+    User:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+          pattern: ^[a-z0-9_]{3,32}$
+          nullable: true
+        nickname:
+          type: string
+          minLength: 1
+          maxLength: 80
+        role:
+          type: string
+          enum:
+            - user
+            - admin
+        identityKind:
+          type: string
+          enum:
+            - guest
+            - account
+        createdAt:
+          type: string
+          format: date-time
+        lastLoginAt:
+          type: string
+          format: date-time
+          nullable: true
+        lastActiveAt:
+          type: string
+          format: date-time
+          nullable: true
+        online:
+          type: boolean
+      required:
+        - id
+        - username
+        - nickname
+        - role
+        - identityKind
+        - createdAt
+        - lastLoginAt
+        - lastActiveAt
+        - online
+    Csrf:
+      type: object
+      additionalProperties: false
+      properties:
+        csrfToken:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        expiresAt:
+          type: string
+          format: date-time
+      required:
+        - csrfToken
+        - expiresAt
+    Login:
+      type: object
+      additionalProperties: false
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 32
+        password:
+          type: string
+          minLength: 1
+          maxLength: 128
+          writeOnly: true
+          description: 登录保留旧密码兼容；新注册和改密使用 6–12 位字母数字规则
+      required:
+        - username
+        - password
+    Registration:
+      type: object
+      additionalProperties: false
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 32
+        password:
+          type: string
+          minLength: 6
+          maxLength: 12
+          pattern: ^(?=.*[A-Za-z])(?=.*[0-9])[A-Za-z0-9]{6,12}$
+          writeOnly: true
+      required:
+        - username
+        - password
+    SecurityQuestion:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          enum:
+            - first_school
+            - childhood_friend
+            - childhood_place
+            - favorite_teacher
+            - first_pet
+            - memorable_city
+            - favorite_book
+            - family_nickname
+        zh:
+          type: string
+        en:
+          type: string
+      required:
+        - id
+        - zh
+        - en
+    SecurityState:
+      type: object
+      additionalProperties: false
+      properties:
+        configured:
+          type: boolean
+        version:
+          type: integer
+          minimum: 0
+        questions:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecurityQuestion'
+          maxItems: 3
+        availableQuestions:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecurityQuestion'
+      required:
+        - configured
+        - version
+        - questions
+        - availableQuestions
+    SecurityAnswers:
+      type: array
+      items:
+        type: string
+        minLength: 1
+        maxLength: 120
+        writeOnly: true
+      minItems: 3
+      maxItems: 3
+      description: 依返回的问题顺序填写全部三个答案；NFKC、首尾空格、连续空白和英文大小写归一；仅保存加盐 scrypt 哈希
+    SecuritySetup:
+      type: object
+      additionalProperties: false
+      properties:
+        expectedVersion:
+          type: integer
+          minimum: 0
+        questions:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              questionId:
+                type: string
+                enum:
+                  - first_school
+                  - childhood_friend
+                  - childhood_place
+                  - favorite_teacher
+                  - first_pet
+                  - memorable_city
+                  - favorite_book
+                  - family_nickname
+              answer:
+                type: string
+                minLength: 1
+                maxLength: 120
+                writeOnly: true
+            required:
+              - questionId
+              - answer
+          minItems: 3
+          maxItems: 3
+        currentPassword:
+          type: string
+          minLength: 1
+          maxLength: 128
+          writeOnly: true
+        answers:
+          $ref: '#/components/schemas/SecurityAnswers'
+      required:
+        - expectedVersion
+        - questions
+    PasswordChange:
+      type: object
+      additionalProperties: false
+      properties:
+        expectedVersion:
+          type: integer
+          minimum: 1
+        answers:
+          $ref: '#/components/schemas/SecurityAnswers'
+        newPassword:
+          type: string
+          minLength: 6
+          maxLength: 12
+          pattern: ^(?=.*[A-Za-z])(?=.*[0-9])[A-Za-z0-9]{6,12}$
+          writeOnly: true
+      required:
+        - expectedVersion
+        - answers
+        - newPassword
+    FileError:
+      type: object
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+      required:
+        - code
+        - message
+      nullable: true
+    File:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        originalName:
+          type: string
+          maxLength: 180
+        mimeType:
+          type: string
+          enum:
+            - application/pdf
+            - image/jpeg
+            - image/png
+        byteSize:
+          type: integer
+          minimum: 1
+        sourcePageCount:
+          type: integer
+          minimum: 1
+          maximum: 2000
+          nullable: true
+        sourceSha256:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        status:
+          type: string
+          enum:
+            - processing
+            - ready
+            - failed
+            - expired
+        error:
+          $ref: '#/components/schemas/FileError'
+        claimedOrderId:
+          type: string
+          nullable: true
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        uploadedAt:
+          type: string
+          format: date-time
+        fileAvailability:
+          type: string
+          enum:
+            - available
+            - expired
+            - deleted
+        allowedActions:
+          type: array
+          items:
+            type: string
+            enum:
+              - preview
+              - delete
+      required:
+        - id
+        - originalName
+        - mimeType
+        - byteSize
+        - sourcePageCount
+        - sourceSha256
+        - status
+        - error
+        - claimedOrderId
+        - expiresAt
+        - uploadedAt
+        - fileAvailability
+        - allowedActions
+    Artifact:
+      type: object
+      additionalProperties: false
+      properties:
+        artifactId:
+          type: string
+          format: uuid
+        fileId:
+          type: string
+          format: uuid
+        preparationId:
+          type: string
+          nullable: true
+        pageCount:
+          type: integer
+          minimum: 1
+        sha256:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        byteSize:
+          type: integer
+          minimum: 1
+        mimeType:
+          type: string
+        paperSize:
+          type: string
+          enum:
+            - A4
+        colorMode:
+          type: string
+          enum:
+            - black_white
+        copiesInPdf:
+          type: integer
+          enum:
+            - 1
+        sourceSha256:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        pageNumbers:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+        - artifactId
+        - fileId
+        - preparationId
+        - pageCount
+        - sha256
+        - byteSize
+        - mimeType
+        - paperSize
+        - colorMode
+        - copiesInPdf
+        - sourceSha256
+        - pageNumbers
+        - expiresAt
+    CleanupRun:
+      type: object
+      additionalProperties: false
+      properties:
+        runId:
+          type: string
+          format: uuid
+        startedAt:
+          type: string
+          format: date-time
+        examined:
+          type: integer
+          minimum: 0
+        purged:
+          type: integer
+          minimum: 0
+        failed:
+          type: integer
+          minimum: 0
+        deferred:
+          type: integer
+          minimum: 0
+        finishedAt:
+          type: string
+          format: date-time
+      required:
+        - runId
+        - startedAt
+        - examined
+        - purged
+        - failed
+        - deferred
+        - finishedAt
+    StoredCleanupRun:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        startedAt:
+          type: string
+          format: date-time
+        examined:
+          type: integer
+          minimum: 0
+        purged:
+          type: integer
+          minimum: 0
+        failed:
+          type: integer
+          minimum: 0
+        deferred:
+          type: integer
+          minimum: 0
+        finishedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+        - id
+        - startedAt
+        - examined
+        - purged
+        - failed
+        - deferred
+        - finishedAt
+      nullable: true
+    CleanupStatus:
+      type: object
+      additionalProperties: false
+      properties:
+        intervalMs:
+          type: integer
+          maximum: 300000
+        temporaryUploadHours:
+          type: integer
+          enum:
+            - 24
+        latestRun:
+          $ref: '#/components/schemas/StoredCleanupRun'
+        pendingExpired:
+          type: integer
+          minimum: 0
+        failures:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              fileId:
+                type: string
+                format: uuid
+              purgeAttempts:
+                type: integer
+                minimum: 1
+              code:
+                type: string
+                enum:
+                  - FILE_DELETE_FAILED
+                  - UNSAFE_STORAGE_PATH
+            required:
+              - fileId
+              - purgeAttempts
+              - code
+        temporaryCleanupFailures:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              jobId:
+                type: string
+                format: uuid
+              code:
+                type: string
+            required:
+              - jobId
+              - code
+        ledgerError:
+          type: string
+          nullable: true
+        processing:
+          type: object
+          additionalProperties: false
+          properties:
+            running:
+              type: integer
+              minimum: 0
+            queued:
+              type: integer
+              minimum: 0
+            maxConcurrent:
+              type: integer
+              minimum: 1
+          required:
+            - running
+            - queued
+            - maxConcurrent
+        backupCleanup:
+          type: object
+          additionalProperties: false
+          properties:
+            examined:
+              type: integer
+              minimum: 0
+            purged:
+              type: integer
+              minimum: 0
+            failures:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                properties:
+                  snapshotId:
+                    type: string
+                  fileId:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - snapshotId
+                  - fileId
+                  - code
+          required:
+            - examined
+            - purged
+            - failures
+      required:
+        - intervalMs
+        - temporaryUploadHours
+        - latestRun
+        - pendingExpired
+        - failures
+        - temporaryCleanupFailures
+        - ledgerError
+        - processing
+    UploadLimits:
+      type: object
+      additionalProperties: false
+      properties:
+        requestBytes:
+          type: integer
+          minimum: 1
+        pageSize:
+          type: integer
+          minimum: 1
+        allowedExtensions:
+          type: array
+          items:
+            type: string
+        allowedMimeTypes:
+          type: array
+          items:
+            type: string
+        maxFileBytes:
+          type: integer
+          minimum: 1
+        maxSourcePages:
+          type: integer
+          minimum: 1
+        maxImagePixels:
+          type: integer
+          minimum: 1
+        maxPagePixels:
+          type: integer
+          minimum: 1
+        maxPreparedPages:
+          type: integer
+          minimum: 1
+        maxDerivedBytes:
+          type: integer
+          minimum: 1
+        maxTemporaryFilesPerUser:
+          type: integer
+          minimum: 1
+        maxSourceBytesPerUser:
+          type: integer
+          minimum: 1
+        maxActiveFilesPerUser:
+          type: integer
+          minimum: 1
+        maxTotalActiveFiles:
+          type: integer
+          minimum: 1
+        maxTotalSourceBytes:
+          type: integer
+          minimum: 1
+        maxTotalDerivedBytes:
+          type: integer
+          minimum: 1
+        minFreeDiskBytes:
+          type: integer
+          minimum: 1
+        maxUploadsInFlight:
+          type: integer
+          minimum: 1
+        maxJobsInFlight:
+          type: integer
+          minimum: 1
+        maxQueuedJobs:
+          type: integer
+          minimum: 1
+        maxJobsPerFile:
+          type: integer
+          minimum: 1
+        maxJobAttempts:
+          type: integer
+          minimum: 1
+        uploadTimeoutMs:
+          type: integer
+          minimum: 1
+        processingTimeoutMs:
+          type: integer
+          minimum: 1
+        previewTimeoutMs:
+          type: integer
+          minimum: 1
+        inspectionTimeoutMs:
+          type: integer
+          minimum: 1
+        temporaryUploadHours:
+          type: integer
+          minimum: 1
+        cleanupIntervalMs:
+          type: integer
+          minimum: 1
+        printDpi:
+          type: integer
+          minimum: 1
+        previewWidthPx:
+          type: integer
+          minimum: 1
+        marginMm:
+          type: integer
+          minimum: 1
+        paymentImageMaxBytes:
+          type: integer
+          minimum: 1
+        activityThrottleMs:
+          type: integer
+          minimum: 1
+      required:
+        - requestBytes
+        - pageSize
+        - allowedExtensions
+        - allowedMimeTypes
+        - maxFileBytes
+        - maxSourcePages
+        - maxImagePixels
+        - maxPagePixels
+        - maxPreparedPages
+        - maxDerivedBytes
+        - maxTemporaryFilesPerUser
+        - maxSourceBytesPerUser
+        - maxActiveFilesPerUser
+        - maxTotalActiveFiles
+        - maxTotalSourceBytes
+        - maxTotalDerivedBytes
+        - minFreeDiskBytes
+        - maxUploadsInFlight
+        - maxJobsInFlight
+        - maxQueuedJobs
+        - maxJobsPerFile
+        - maxJobAttempts
+        - uploadTimeoutMs
+        - processingTimeoutMs
+        - previewTimeoutMs
+        - inspectionTimeoutMs
+        - temporaryUploadHours
+        - cleanupIntervalMs
+        - printDpi
+        - previewWidthPx
+        - marginMm
+        - paymentImageMaxBytes
+        - activityThrottleMs
+    PublicConfig:
+      type: object
+      additionalProperties: false
+      properties:
+        product:
+          type: object
+          additionalProperties: false
+          properties:
+            id:
+              type: string
+              enum:
+                - campus-print-v1
+            name:
+              type: string
+            nameEn:
+              type: string
+            version:
+              type: string
+          required:
+            - id
+            - name
+            - nameEn
+            - version
+        timezone:
+          type: string
+          enum:
+            - Asia/Shanghai
+        maintenance:
+          type: object
+          additionalProperties: false
+          properties:
+            enabled:
+              type: boolean
+            message:
+              type: string
+            updatedAt:
+              type: string
+              format: date-time
+              nullable: true
+          required:
+            - enabled
+            - message
+            - updatedAt
+        auth:
+          type: object
+          additionalProperties: false
+          properties:
+            usernameRule:
+              type: string
+            passwordMinLength:
+              type: integer
+              enum:
+                - 6
+            passwordMaxLength:
+              type: integer
+              enum:
+                - 12
+            passwordPattern:
+              type: string
+              enum:
+                - ^(?=.*[A-Za-z])(?=.*[0-9])[A-Za-z0-9]{6,12}$
+            roles:
+              type: array
+              items:
+                type: string
+                enum:
+                  - user
+                  - admin
+          required:
+            - usernameRule
+            - passwordMinLength
+            - passwordMaxLength
+            - passwordPattern
+            - roles
+        uploadLimits:
+          $ref: '#/components/schemas/UploadLimits'
+        capabilities:
+          type: object
+          additionalProperties: false
+          properties:
+            privateFiles:
+              type: boolean
+            orders:
+              type: boolean
+            advertisements:
+              type: boolean
+          required:
+            - privateFiles
+            - orders
+            - advertisements
+        studentAccountsEnabled:
+          type: boolean
+        guestSessionDays:
+          type: integer
+          enum:
+            - 7
+      required:
+        - product
+        - timezone
+        - maintenance
+        - auth
+        - uploadLimits
+        - capabilities
+        - studentAccountsEnabled
+        - guestSessionDays
+    Identity:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+          pattern: ^[a-z0-9_]{3,32}$
+          nullable: true
+        nickname:
+          type: string
+          minLength: 1
+          maxLength: 80
+        role:
+          type: string
+          enum:
+            - user
+            - admin
+        identityKind:
+          type: string
+          enum:
+            - guest
+            - account
+        createdAt:
+          type: string
+          format: date-time
+        lastLoginAt:
+          type: string
+          format: date-time
+          nullable: true
+        lastActiveAt:
+          type: string
+          format: date-time
+          nullable: true
+        online:
+          type: boolean
+        sessionExpiresAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - username
+        - nickname
+        - role
+        - identityKind
+        - createdAt
+        - lastLoginAt
+        - lastActiveAt
+        - online
+        - sessionExpiresAt
+  responses:
+    Error400:
+      description: 参数无效、损坏请求、页码语法或额外字段错误
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Error401:
+      description: 未登录或会话失效
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Error403:
+      description: 角色、CSRF 或来源校验失败
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Error404:
+      description: 资源不存在或属于他人；不泄露资源存在性
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Error408:
+      description: 上传超时
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Error409:
+      description: 文件正在处理、已经认领或稳定任务标识冲突
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Error410:
+      description: 文件到期/清理后禁止读取与再生成
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Error413:
+      description: 文件、像素、页数、存储资源上限
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Error415:
+      description: 格式/声明不匹配、不支持格式或加密/XFA 等内容
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Error422:
+      description: 文件损坏或处理失败
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Error429:
+      description: 请求、上传或处理队列限流
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+      headers:
+        Retry-After:
+          description: 至少等待的秒数
+          schema:
+            type: string
+    Error500:
+      description: 内部错误或存储路径检查失败
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Error503:
+      description: 维护、文件存储或期限台账不可用
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
