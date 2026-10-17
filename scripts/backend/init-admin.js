@@ -6,9 +6,15 @@ const { openDatabase }=require('../../backend/db');
 const { createAdmin }=require('../../backend/auth');
 async function main() {
   // No password in arguments or source. Interactive input is hidden; automation may use process environment.
-  const args=process.argv.slice(2);let username=process.env.CP_ADMIN_USERNAME,password=process.env.CP_ADMIN_PASSWORD;
-  if(args.length){if(args.length!==2||args[0]!=='--username')throw new Error('仅支持 --username 参数；密码请使用隐藏输入或 CP_ADMIN_PASSWORD 环境变量');username=args[1];}
+  const args=process.argv.slice(2);let username=process.env.CP_ADMIN_USERNAME,password=process.env.CP_ADMIN_PASSWORD,nickname=process.env.CP_ADMIN_NICKNAME||undefined;
   delete process.env.CP_ADMIN_PASSWORD;
+  const supplied=new Set();
+  for(let i=0;i<args.length;i+=2){
+    const flag=args[i],value=args[i+1];
+    if(!['--username','--nickname'].includes(flag)||supplied.has(flag)||!value||value.startsWith('--'))throw new Error('仅支持 --username 和 --nickname 参数，各一次；密码请使用隐藏输入或 CP_ADMIN_PASSWORD 环境变量');
+    supplied.add(flag);
+    if(flag==='--username')username=value;else nickname=value;
+  }
   if(!username||!password){
     if(!process.stdin.isTTY)throw new Error('非交互初始化需要 CP_ADMIN_USERNAME / CP_ADMIN_PASSWORD 环境变量');
     let muted=false;
@@ -20,7 +26,7 @@ async function main() {
     finally{rl.close();}
   }
   const config=loadConfig(),db=openDatabase(config.dbPath);
-  try{const admin=await createAdmin(db,config,{username,password});console.log(`管理员已创建：${admin.username}。请使用 /admin/ 的独立登录入口。`);}
+  try{const admin=await createAdmin(db,config,{username,password,nickname});console.log(`管理员已创建：${admin.username}。请使用 /admin/ 的独立登录入口。`);}
   finally{password=undefined;db.close();}
 }
 main().catch(error=>{console.error(error.message);process.exitCode=1;});
